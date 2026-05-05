@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "erwin-intermediate"
+name = "eil"
 version = "0.1.0"
