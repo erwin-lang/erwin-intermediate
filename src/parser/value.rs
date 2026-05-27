@@ -1,7 +1,7 @@
 use crate::{
     error::{Error, loc_error},
     parser::Parser,
-    structure::{ast::Value, token::Token},
+    structure::{token::Token, value::Value},
 };
 
 impl<'a> Parser<'a> {

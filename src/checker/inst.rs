@@ -1,7 +1,11 @@
 use crate::{
     checker::Checker,
     error::{Error, loc_error},
-    structure::ast::{BinaryOp, Instruction, InstructionKind, Type, UnaryOp, Value},
+    structure::{
+        ast::{BinaryOp, Instruction, InstructionKind, UnaryOp},
+        types::Type,
+        value::Value,
+    },
 };
 
 impl<'a> Checker<'a> {
@@ -12,7 +16,7 @@ impl<'a> Checker<'a> {
             }
             InstructionKind::Decl { ty, id, value } => self.check_decl(inst, *ty, id, *value),
             InstructionKind::Assign { id, value } => self.check_assign(inst, id, *value),
-            InstructionKind::Fn { ty, id, params } => self.check_fn(*ty, id, params),
+            InstructionKind::Fn { ty, id, params } => self.check_fn(inst, *ty, id, params),
             InstructionKind::Ret { ret } => self.check_ret(inst, *ret),
             InstructionKind::Call { op, id, args } => self.check_call(inst, op, id, args),
             InstructionKind::Label { id } => self.check_label(id),
@@ -29,8 +33,8 @@ impl<'a> Checker<'a> {
         id: &'a str,
         value: Value<'a>,
     ) -> Result<(), Error> {
-        let val_ty = self.get_value_ty(value, inst.line)?;
-        let resolved_id = self.resolve_id(id);
+        let val_ty = self.get_value_ty(value, self.inst_index, inst.line)?;
+        let resolved_id = self.resolve_id_logged(self.inst_index, id);
 
         if self.forward_jump.is_some() {
             self.jumped_symbols.insert(resolved_id);
@@ -50,19 +54,21 @@ impl<'a> Checker<'a> {
             );
         }
 
-        sym.ty = val_ty;
+        self.current_stack_offset -= ty.size(inst.line, self.arena)? as i32;
+        sym.stack_offset = self.current_stack_offset;
+        sym.ty = ty;
 
         Ok(())
     }
 
     fn check_assign(
-        &self,
+        &mut self,
         inst: &Instruction<'a>,
         id: &'a str,
         value: Value<'a>,
     ) -> Result<(), Error> {
-        let val_ty = self.get_value_ty(value, inst.line)?;
-        let resolved_id = self.resolve_id(id);
+        let val_ty = self.get_value_ty(value, self.inst_index, inst.line)?;
+        let resolved_id = self.resolve_id_logged(self.inst_index, id);
         let Some(sym) = self.symbols.get(resolved_id) else {
             return loc_error(
                 inst.line,
@@ -77,10 +83,24 @@ impl<'a> Checker<'a> {
             );
         }
 
+        if sym.is_global {
+            return loc_error(
+                inst.line,
+                format!("Symbol '{}' is global and cannot be assigned", id).as_str(),
+            );
+        }
+
         if sym.is_fn {
             return loc_error(
                 inst.line,
-                format!("Symbol '{}' is callable and cannot be reassigned", id).as_str(),
+                format!("Symbol '{}' is callable and cannot be assigned", id).as_str(),
+            );
+        }
+
+        if !sym.is_reassignable {
+            return loc_error(
+                inst.line,
+                format!("Symbol '{}' is not assignable", id).as_str(),
             );
         }
 
@@ -101,18 +121,19 @@ impl<'a> Checker<'a> {
 
     fn check_fn(
         &mut self,
+        inst: &Instruction<'a>,
         ty: Type<'a>,
         id: &'a str,
-        params: &'a Vec<(Type<'a>, &str)>,
+        params: &'a [(Type<'a>, &str)],
     ) -> Result<(), Error> {
-        let resolved_id = self.resolve_id(id);
+        let resolved_id = self.resolve_id_logged(self.inst_index, id);
 
         if self.forward_jump.is_some() {
             self.jumped_symbols.insert(resolved_id);
         }
 
         for (p_ty, p_id) in params {
-            let resolved_p_id = self.resolve_id(p_id);
+            let resolved_p_id = self.resolve_id_logged(self.inst_index, p_id);
 
             if self.forward_jump.is_some() {
                 self.jumped_symbols.insert(resolved_p_id);
@@ -120,11 +141,15 @@ impl<'a> Checker<'a> {
 
             let p_sym = self.symbols.get_mut(resolved_p_id).unwrap();
 
+            self.current_stack_offset -= p_ty.size(inst.line, self.arena)? as i32;
+            p_sym.stack_offset = self.current_stack_offset;
             p_sym.ty = *p_ty;
         }
 
         let sym = self.symbols.get_mut(resolved_id).unwrap();
 
+        self.current_stack_offset -= ty.size(inst.line, self.arena)? as i32;
+        sym.stack_offset = self.current_stack_offset;
         sym.ty = ty;
         self.working_funcs.push(resolved_id);
 
@@ -132,7 +157,7 @@ impl<'a> Checker<'a> {
     }
 
     fn check_ret(&mut self, inst: &Instruction<'a>, ret: Value<'a>) -> Result<(), Error> {
-        let val_ty = self.get_value_ty(ret, inst.line)?;
+        let val_ty = self.get_value_ty(ret, self.inst_index, inst.line)?;
         let Some(fn_id) = self.working_funcs.last() else {
             return loc_error(inst.line, "Unmatched return");
         };
@@ -160,9 +185,15 @@ impl<'a> Checker<'a> {
         inst: &Instruction<'a>,
         op: &'a str,
         id: &'a str,
-        args: &Vec<Value<'a>>,
+        args: &[Value<'a>],
     ) -> Result<(), Error> {
-        let resolved_op = self.resolve_id(op);
+        let resolved_op = self.resolve_id_logged(self.inst_index, op);
+
+        let mut arg_types = Vec::new();
+        for arg in args {
+            arg_types.push(self.get_value_ty(*arg, self.inst_index, inst.line)?);
+        }
+
         let fn_sym = self.symbols.get(resolved_op).unwrap();
 
         if !fn_sym.is_visible {
@@ -172,10 +203,16 @@ impl<'a> Checker<'a> {
             );
         }
 
+        if !fn_sym.is_fn {
+            return loc_error(
+                inst.line,
+                format!("Symbol '{}' is not a function", op).as_str(),
+            );
+        }
+
         let ty = fn_sym.ty;
 
-        for (arg, mangled_param) in args.iter().zip(&fn_sym.mangled_params) {
-            let arg_ty = self.get_value_ty(*arg, inst.line)?;
+        for (arg_ty, mangled_param) in arg_types.iter().zip(&fn_sym.mangled_params) {
             let param_ty = self.symbols.get(mangled_param).unwrap().ty;
 
             if !arg_ty.is_assignable_to(param_ty) {
@@ -191,7 +228,7 @@ impl<'a> Checker<'a> {
             }
         }
 
-        let resolved_id = self.resolve_id(id);
+        let resolved_id = self.resolve_id_logged(self.inst_index, id);
 
         if self.forward_jump.is_some() {
             self.jumped_symbols.insert(resolved_id);
@@ -199,13 +236,15 @@ impl<'a> Checker<'a> {
 
         let sym = self.symbols.get_mut(resolved_id).unwrap();
 
+        self.current_stack_offset -= ty.size(inst.line, self.arena)? as i32;
+        sym.stack_offset = self.current_stack_offset;
         sym.ty = ty;
 
         Ok(())
     }
 
     fn check_label(&mut self, id: &'a str) -> Result<(), Error> {
-        let resolved_id = self.resolve_id(id);
+        let resolved_id = self.resolve_id_logged(self.inst_index, id);
 
         if self.forward_jump.is_some() {
             self.jumped_symbols.insert(resolved_id);
@@ -236,13 +275,13 @@ impl<'a> Checker<'a> {
         cond: Value<'a>,
         label: &'a str,
     ) -> Result<(), Error> {
-        let cond_ty = self.get_value_ty(cond, inst.line)?;
+        let cond_ty = self.get_value_ty(cond, self.inst_index, inst.line)?;
 
         if !matches!(cond_ty, Type::Bool) {
             return loc_error(inst.line, "Condition must have bool type");
         }
 
-        let resolved_label = self.resolve_id(label);
+        let resolved_label = self.resolve_id_logged(self.inst_index, label);
 
         let Some(sym) = self.symbols.get(resolved_label) else {
             return loc_error(
@@ -278,13 +317,13 @@ impl<'a> Checker<'a> {
         id: &'a str,
         val: Value<'a>,
     ) -> Result<(), Error> {
-        let resolved_id = self.resolve_id(id);
+        let resolved_id = self.resolve_id_logged(self.inst_index, id);
 
         if self.forward_jump.is_some() {
             self.jumped_symbols.insert(resolved_id);
         }
 
-        let val_ty = self.get_value_ty(val, inst.line)?;
+        let val_ty = self.get_value_ty(val, self.inst_index, inst.line)?;
         let sym = self.symbols.get_mut(resolved_id).unwrap();
 
         let final_ty = match op {
@@ -353,6 +392,8 @@ impl<'a> Checker<'a> {
             }
         };
 
+        self.current_stack_offset -= final_ty.size(inst.line, self.arena)? as i32;
+        sym.stack_offset = self.current_stack_offset;
         sym.ty = final_ty;
 
         Ok(())
@@ -366,14 +407,14 @@ impl<'a> Checker<'a> {
         a: Value<'a>,
         b: Value<'a>,
     ) -> Result<(), Error> {
-        let resolved_id = self.resolve_id(id);
+        let resolved_id = self.resolve_id_logged(self.inst_index, id);
 
         if self.forward_jump.is_some() {
             self.jumped_symbols.insert(resolved_id);
         }
 
-        let a_ty = self.get_value_ty(a, inst.line)?;
-        let b_ty = self.get_value_ty(b, inst.line)?;
+        let a_ty = self.get_value_ty(a, self.inst_index, inst.line)?;
+        let b_ty = self.get_value_ty(b, self.inst_index, inst.line)?;
         let sym = self.symbols.get_mut(resolved_id).unwrap();
 
         let final_ty = a_ty.join(b_ty, self.arena, inst.line)?;
@@ -424,6 +465,8 @@ impl<'a> Checker<'a> {
             }
         }
 
+        self.current_stack_offset -= final_ty.size(inst.line, self.arena)? as i32;
+        sym.stack_offset = self.current_stack_offset;
         sym.ty = final_ty;
 
         Ok(())

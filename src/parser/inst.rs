@@ -36,6 +36,11 @@ impl<'a> Parser<'a> {
 
     fn parse_import(&mut self) -> Result<(), Error> {
         let alias = self.next_and_consume(Token::Identifier)?;
+
+        if alias.contains(".") {
+            return loc_error(self.line, "Declaration identifier cannot have '.'");
+        }
+
         let path = Path::new(self.next_and_consume(Token::StringLiteral)?);
 
         self.insts.push(Instruction {
@@ -55,6 +60,10 @@ impl<'a> Parser<'a> {
         let ty = self.parse_type(ty_token)?;
 
         let id = self.next_and_consume(Token::Identifier)?;
+
+        if id.contains(".") {
+            return loc_error(self.line, "Declaration identifier cannot have '.'");
+        }
 
         let val_token = self.advance();
         let value = self.parse_value(val_token)?;
@@ -97,6 +106,10 @@ impl<'a> Parser<'a> {
 
         let id = self.next_and_consume(Token::Identifier)?;
 
+        if id.contains(".") {
+            return loc_error(self.line, "Declaration identifier cannot have '.'");
+        }
+
         let mut params = Vec::new();
         loop {
             let token = self.advance();
@@ -106,7 +119,7 @@ impl<'a> Parser<'a> {
                     self.line += 1;
                     break;
                 }
-                Token::EOF => break,
+                Token::Eof => break,
                 _ => {}
             }
 
@@ -145,6 +158,10 @@ impl<'a> Parser<'a> {
         let op = self.lexer.slice();
         let id = self.next_and_consume(Token::Identifier)?;
 
+        if id.contains(".") {
+            return loc_error(self.line, "Declaration identifier cannot have '.'");
+        }
+
         let mut args = Vec::new();
         loop {
             let token = self.advance();
@@ -154,7 +171,7 @@ impl<'a> Parser<'a> {
                     self.line += 1;
                     break;
                 }
-                Token::EOF => break,
+                Token::Eof => break,
                 _ => {}
             }
 
@@ -171,6 +188,10 @@ impl<'a> Parser<'a> {
 
     fn parse_label(&mut self) -> Result<(), Error> {
         let id = self.next_and_consume(Token::Identifier)?;
+
+        if id.contains(".") {
+            return loc_error(self.line, "Declaration identifier cannot have '.'");
+        }
 
         self.insts.push(Instruction {
             kind: InstructionKind::Label { id },
@@ -215,6 +236,10 @@ impl<'a> Parser<'a> {
 
         let id = self.next_and_consume(Token::Identifier)?;
 
+        if id.contains(".") {
+            return loc_error(self.line, "Declaration identifier cannot have '.'");
+        }
+
         let val_token = self.advance();
         let val = self.parse_value(val_token)?;
 
@@ -243,6 +268,10 @@ impl<'a> Parser<'a> {
         };
 
         let id = self.next_and_consume(Token::Identifier)?;
+
+        if id.contains(".") {
+            return loc_error(self.line, "Declaration identifier cannot have '.'");
+        }
 
         let a_token = self.advance();
         let a = self.parse_value(a_token)?;

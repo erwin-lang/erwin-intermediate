@@ -42,7 +42,7 @@ impl<'a> Parser<'a> {
             return token;
         }
 
-        Token::EOF
+        Token::Eof
     }
 
     pub(super) fn next_and_consume(&mut self, expected: Token) -> Result<&'a str, Error> {

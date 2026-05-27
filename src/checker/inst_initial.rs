@@ -2,8 +2,10 @@ use crate::{
     checker::Checker,
     error::{Error, loc_error},
     structure::{
-        ast::{Instruction, InstructionKind, Type, Value},
-        symbols::Symbol,
+        ast::{Instruction, InstructionKind},
+        symbol::Symbol,
+        types::Type,
+        value::Value,
     },
 };
 
@@ -34,7 +36,10 @@ impl<'a> Checker<'a> {
                 ty: Type::Undeclared,
                 is_fn: false,
                 is_visible: true,
+                is_reassignable: true,
+                is_global: self.working_funcs.is_empty(),
                 mangled_params: Vec::new(),
+                stack_offset: 0,
             },
         );
 
@@ -45,7 +50,7 @@ impl<'a> Checker<'a> {
         &mut self,
         inst: &Instruction<'a>,
         id: &'a str,
-        params: &'a Vec<(Type<'a>, &str)>,
+        params: &'a [(Type<'a>, &str)],
     ) -> Result<(), Error> {
         let mangled_id = self.mangle_id(id);
 
@@ -77,7 +82,10 @@ impl<'a> Checker<'a> {
                     ty: Type::Undeclared,
                     is_fn: false,
                     is_visible: true,
+                    is_reassignable: false,
+                    is_global: self.working_funcs.is_empty(),
                     mangled_params: Vec::new(),
+                    stack_offset: 0,
                 },
             );
         }
@@ -89,7 +97,10 @@ impl<'a> Checker<'a> {
                 ty: Type::Undeclared,
                 is_fn: true,
                 is_visible: true,
+                is_reassignable: false,
+                is_global: self.working_funcs.is_empty(),
                 mangled_params,
+                stack_offset: 0,
             },
         );
 
@@ -113,7 +124,7 @@ impl<'a> Checker<'a> {
         inst: &Instruction<'a>,
         op: &'a str,
         id: &'a str,
-        args: &Vec<Value<'a>>,
+        args: &[Value<'a>],
     ) -> Result<(), Error> {
         let resolved_op = self.resolve_id(op);
 
@@ -123,13 +134,6 @@ impl<'a> Checker<'a> {
                 format!("Symbol '{}' never declared", op).as_str(),
             );
         };
-
-        if !fn_sym.is_fn {
-            return loc_error(
-                inst.line,
-                format!("Symbol '{}' is not callable", op).as_str(),
-            );
-        }
 
         if args.len() != fn_sym.mangled_params.len() {
             return loc_error(
@@ -153,7 +157,10 @@ impl<'a> Checker<'a> {
                 ty: Type::Undeclared,
                 is_fn: false,
                 is_visible: true,
+                is_reassignable: true,
+                is_global: self.working_funcs.is_empty(),
                 mangled_params: Vec::new(),
+                stack_offset: 0,
             },
         );
 
@@ -177,7 +184,10 @@ impl<'a> Checker<'a> {
                 ty: Type::Label,
                 is_fn: false,
                 is_visible: true,
+                is_reassignable: false,
+                is_global: self.working_funcs.is_empty(),
                 mangled_params: Vec::new(),
+                stack_offset: 0,
             },
         );
 
@@ -194,7 +204,10 @@ impl<'a> Checker<'a> {
                 ty: Type::Undeclared,
                 is_fn: false,
                 is_visible: true,
+                is_reassignable: true,
+                is_global: self.working_funcs.is_empty(),
                 mangled_params: Vec::new(),
+                stack_offset: 0,
             },
         );
 
@@ -211,7 +224,10 @@ impl<'a> Checker<'a> {
                 ty: Type::Undeclared,
                 is_fn: false,
                 is_visible: true,
+                is_reassignable: true,
+                is_global: self.working_funcs.is_empty(),
                 mangled_params: Vec::new(),
+                stack_offset: 0,
             },
         );
 

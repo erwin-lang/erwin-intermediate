@@ -114,7 +114,7 @@ pub(crate) enum Token {
     Ptr,
 
     // Values
-    #[regex(r"[_a-zA-Z][_a-zA-Z0-9]*(\.[_a-zA-Z0-9]+)*")]
+    #[regex(r"[_a-zA-Z][_a-zA-Z0-9]*(\.[_a-zA-Z0-9]+)?")]
     Identifier,
 
     #[token("true")]
@@ -133,5 +133,5 @@ pub(crate) enum Token {
     #[token("\n")]
     Newline,
 
-    EOF,
+    Eof,
 }

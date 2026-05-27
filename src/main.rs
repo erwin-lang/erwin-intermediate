@@ -1,6 +1,8 @@
 use std::{env::args, path::Path};
 
-use crate::{arena::Arena, error::Error, importer::Importer};
+use crate::{
+    arena::Arena, assembler::AssemblerAMD64, checker::Checker, error::Error, importer::Importer,
+};
 
 mod arena;
 mod assembler;
@@ -21,6 +23,14 @@ fn main() -> Result<(), Error> {
 
     let importer = Importer::new(arena, &main_module);
     let program = importer.resolve()?;
+
+    let checker = Checker::new(arena, &program);
+    let (symbols, resolutions) = checker.check()?;
+
+    let assembler = AssemblerAMD64::new(arena, &program, &symbols, &resolutions);
+    let assembly_output = assembler.assemble()?;
+
+    print!("{:#?}", assembly_output);
 
     Ok(())
 }

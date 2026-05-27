@@ -57,12 +57,14 @@ impl<'a> Importer<'a> {
         for mut inst in instructions {
             if let InstructionKind::Import { path, alias } = inst.kind {
                 self.resolve_imports(path, Some(alias))?;
-            } else {
-                if let Some(prefix) = current_prefix {
-                    inst.add_module_prefix(self.arena, prefix);
-                }
-                self.program.push(inst);
+                continue;
             }
+
+            if let Some(prefix) = current_prefix {
+                inst.add_module_prefix(self.arena, prefix);
+            }
+
+            self.program.push(inst);
         }
 
         Ok(())
